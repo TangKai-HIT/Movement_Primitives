@@ -9,7 +9,7 @@ classdef DMP_Base1 < handle
                                     
         Force_Params=struct('nbFuncs', 5, 'weights', [], 'Mu', [], 'Sigma', []);
         
-        Trajectory = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', []);
+        Trajectory;
         
         TrainData = {};
         
@@ -19,6 +19,7 @@ classdef DMP_Base1 < handle
     
     properties (Access = private)
         TrainDataTemplate = struct('y_train', [], 'dy_train', [], 'ddy_train', [], 'nbData', []); %template of each demonstration data
+        TrajectoryTemplate = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', [], 'f_traj', [], 'activations', []); %template of query trajectory data
         P_rlwr; %P matrix for recursive LWR
         P_rls; %P matrix for recursive least square
     end
@@ -31,8 +32,6 @@ classdef DMP_Base1 < handle
             %   position data Yi (Yi: d X N matrix)
             if nargin>0
                 %%specify parameters of canonical & transformation systems
-                obj.DMP_Params.goal = trainPosData(end, :);
-                obj.DMP_Params.y_0 = trainPosData(1, :);
                 obj.DMP_Params.alpha_z = alpha_z;
                 obj.DMP_Params.beta_z = beta_z;
                 obj.DMP_Params.tau = tau;
@@ -46,23 +45,28 @@ classdef DMP_Base1 < handle
                 if nargin>5 % if input training data
                     %%specify training data(in batch)
                     obj.nbDemons = size(trainPosData,2);
-
+                    
                     for i=1:obj.nbDemons
                         obj.TrainData{i} = obj.TrainDataTemplate; %assign empty template
                         %obj.TrainData{i}.y_train = spline(1:size(trainPosData{i},2), trainPosData{i}, linspace(1,size(trainPosData{i},2),nbSampData)); %Resampling
                         obj.TrainData{i}.y_train = trainPosData{i};
                         obj.TrainData{i}.nbData = size(trainPosData{i}, 2);
                         if ~exist('trainVelData','var')
-                            obj.TrainData.dy_train = gradient(trainPosData)/dt;
+                            obj.TrainData{i}.dy_train = gradient(trainPosData{i})/dt;
                         else
-                            obj.TrainData.dy_train = trainVelData;
+                            obj.TrainData{i}.dy_train = trainVelData{i};
                         end
                         if ~exist('trainAccelData','var')
-                            obj.TrainData.ddy_train = gradient(obj.TrainData.dy_train)/dt;
+                            obj.TrainData{i}.ddy_train = gradient(obj.TrainData{i}.dy_train)/dt;
                         else
-                            obj.TrainData.ddy_train = trainAccelData;
+                            obj.TrainData{i}.ddy_train = trainAccelData{i};
                         end
                     end
+                    
+                    %set default goal & initial states
+                    obj.DMP_Params.goal = obj.TrainData{1}.y_train(:, end); %set default goal
+                    obj.DMP_Params.y_0 = obj.TrainData{1}.y_train(:, 1); %set default initial state
+                    obj.DMP_Params.dy_0 = obj.TrainData{1}.dy_train(:, 1); %set default initial state
                 end
                 
             end
@@ -77,7 +81,7 @@ classdef DMP_Base1 < handle
             obj.Force_Params.Sigma = zeros(1,5);
             
             for i=1:nbFuncs
-                obj.Force_Params.Mu(i) = exp(-obj.DMP_Params.alpha_x*(i-1)/(nbFuncs-1));
+                obj.Force_Params.Mu(i) = exp(-obj.DMP_Params.alpha_x/*(i-1)/(nbFuncs-1));
                 if i > 1
                     obj.Force_Params.Sigma(i-1) = ((obj.Force_Params.Mu(i) - obj.Force_Params.Mu(i-1))/2)^2;
                 end
@@ -97,18 +101,19 @@ classdef DMP_Base1 < handle
             %genPredTraj: generate predicted output states by query timing points(i.e. trajectory of y)
             %   inputs:
             
-            trajQuery  = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', []);
+            trajQuery  = obj.TrajectoryTemplate; %init using trajectory template structure
             %generate canonical states
             timeQuery = 0: obj.dt: endTime;
             trajQuery.s_traj = obj.genCanonStates(timeQuery); 
             %compute Phi matrix(basis functions)
-            Phi = zeros(obj.Force_Params.nbFuncs, nbData);
+            Phi = zeros(obj.Force_Params.nbFuncs, size(timeQuery,2));
             for k =1:obj.Force_Params.nbFuncs
-                Phi(k, :) = rbf_Basis(obj.Trajectory.s_traj, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
+                Phi(k, :) = rbf_Basis(trajQuery.s_traj, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
             end
-            Phi = Phi ./ sum(Phi,1) .* obj.Trajectory.s_traj;
+            trajQuery.activations = Phi; %record activations
+            Phi = Phi ./ sum(Phi,1) .* trajQuery.s_traj;
             %compute force terms
-            f_d = obj.Force_Params.weights * Phi;
+            trajQuery.f_traj = obj.Force_Params.weights * Phi;
             
             %Reproduction: Eular forward iteration
             N = size(timeQuery,2); %number of query points
@@ -125,10 +130,11 @@ classdef DMP_Base1 < handle
                     trajQuery.dy_traj(:, i) = trajQuery.dy_traj(:, i-1) +  trajQuery.ddy_traj(:, i-1) * obj.dt;
                 end
 
-                trajQuery.ddy_traj(:, i) = f_d(:, i) + 1/obj.DMP_Params.tau^2 * obj.DMP_Params.alpha_z * ...
-                      (obj.DMP_Params.beta_z*(obj.DMP_Params.goal - trajQuery.y_traj(:, i)) - obj.DMP_Params.tau * trajQuery.dy_traj(:, i));
-                
+                trajQuery.ddy_traj(:, i) = 1/obj.DMP_Params.tau^2 * (trajQuery.f_traj(:, i) +  obj.DMP_Params.alpha_z * ...
+                      (obj.DMP_Params.beta_z*(obj.DMP_Params.goal - trajQuery.y_traj(:, i)) - obj.DMP_Params.tau * trajQuery.dy_traj(:, i)));
             end
+            
+            obj.Trajectory = trajQuery;
         end
         
         function LS_batchTrain(obj)
@@ -139,9 +145,9 @@ classdef DMP_Base1 < handle
             Y_out = [];
             for i=1:obj.nbDemons
                 %canonical states for current demonstration
-                s = obj.genCanonStates([0 : obj.TrainData.nbData-1]*obj.dt);
+                s = obj.genCanonStates([0 : obj.TrainData{i}.nbData-1]*obj.dt);
                 %Input demonstrated data
-                Phi = zeros(obj.Force_Params.nbFuncs, nbData);
+                Phi = zeros(obj.Force_Params.nbFuncs, obj.TrainData{i}.nbData);
                 for k =1:obj.Force_Params.nbFuncs
                     Phi(k, :) = rbf_Basis(s, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
                 end

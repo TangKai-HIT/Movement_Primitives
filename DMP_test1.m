@@ -1,13 +1,14 @@
 % DMP test demo1: train DMP using batch least square
+clc; clear; close all;
 addpath(genpath('./src'), genpath('./my_util'));
-%% load data
+%% Load data
 load('./dataset/G.mat');
 loadDemonId = 1:4; %index of chosen demonstrations in the data set
 %% DMP parameters
-alpha_z =25;
+alpha_z =10;
 beta_z = alpha_z/4;
-alpha_x = alpha_z/3;
-tau = alpha_x;
+alpha_x = 1;
+tau = 0.5;
 dt =0.01;
 nbFuncs = 5;
 %% Trained by least square (batch)
@@ -27,6 +28,41 @@ DMP1 = DMP_Base1(alpha_z, beta_z, tau, alpha_x, dt, ...
 DMP1.init_RBFBasis_timeBased(nbFuncs);                                       
 %train DMP using  batch least square
 DMP1.LS_batchTrain();
-%% generate predicted trajectories
+%% Generate predicted trajectories
 endtime = 200*dt;
 [predTraj, timeSqe]= DMP1.genPredTraj(endtime);
+
+%% Plot results
+%Init figures and plot parameters
+figure('PaperPosition',[0 0 16 4],'position',[10,10,1300,500],'color',[1 1 1]); 
+xx = round(linspace(1, 64, DMP1.Force_Params.nbFuncs)); %index to divide colormap
+clrmap = colormap('jet')*0.5;
+clrmap = min(clrmap(xx,:),.9);
+
+%Plot spatial demonstrations and predicted trajectory
+axes('Position',[0 0 .2 1]); hold on; axis off;
+for i=1:size(DMP1.TrainData, 2)
+plot(DMP1.TrainData{i}.y_train(1,:), DMP1.TrainData{i}.y_train(2,:), '.', 'markersize', 8, 'color', [.7 .7 .7]);
+end
+plot(predTraj.y_traj(1,:), predTraj.y_traj(2,:), '-', 'linewidth', 3, 'color', [.8 0 0]);
+axis equal; axis square;  
+
+%Timeline plot of the force term
+axes('Position',[.25 .58 .7 .4]); hold on; 
+plot(timeSqe, predTraj.f_traj(1,:), '-','linewidth', 2, 'color', [.8 0 0]);
+% axis([min(timeSqe) max(timeSqe) min(trajQuery.f_traj(1,:)) max(trajQuery.f_traj(1,:))]);
+ylabel('$F_1$','fontsize',16,'interpreter','latex');
+xlabel('$t/s$','fontsize',16,'interpreter','latex');
+view(180,-90);
+
+%Plot of the basis functions activation w.r.t canonical state
+axes('Position',[.25 .12 .7 .4]); hold on; 
+for i=1:DMP1.Force_Params.nbFuncs
+	patch([predTraj.s_traj(1), predTraj.s_traj, predTraj.s_traj(end)], ...
+                [0, predTraj.activations(i,:), 0], min(clrmap(i,:)+0.5,1), 'EdgeColor', 'none', 'facealpha', .4);
+	plot(predTraj.s_traj, predTraj.activations(i,:), 'linewidth', 2, 'color', min(clrmap(i,:)+0.2,1));
+end
+% axis([min(sIn) max(sIn) 0 1]);
+xlabel('$x$','fontsize',16,'interpreter','latex'); 
+ylabel('$\Psi$','fontsize',16,'interpreter','latex');
+view(180,-90);

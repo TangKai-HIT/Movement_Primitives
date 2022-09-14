@@ -9,7 +9,7 @@ classdef DMP_Base1 < handle
                                     
         Force_Params=struct('nbFuncs', 5, 'weights', [], 'Mu', [], 'Sigma', []);
         
-        Trajectory = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', []);
+        Trajectory;
         
         TrainData = {};
         
@@ -19,6 +19,7 @@ classdef DMP_Base1 < handle
     
     properties (Access = private)
         TrainDataTemplate = struct('y_train', [], 'dy_train', [], 'ddy_train', [], 'nbData', []); %template of each demonstration data
+        TrajectoryTemplate = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', [], 'f_traj', [], 'activations', []); %template of query trajectory data
         P_rlwr; %P matrix for recursive LWR
         P_rls; %P matrix for recursive least square
     end
@@ -80,7 +81,7 @@ classdef DMP_Base1 < handle
             obj.Force_Params.Sigma = zeros(1,5);
             
             for i=1:nbFuncs
-                obj.Force_Params.Mu(i) = exp(-obj.DMP_Params.alpha_x*(i-1)/(nbFuncs-1));
+                obj.Force_Params.Mu(i) = exp(-obj.DMP_Params.alpha_x / obj.DMP_Params.tau *(i-1)/(nbFuncs-1));
                 if i > 1
                     obj.Force_Params.Sigma(i-1) = ((obj.Force_Params.Mu(i) - obj.Force_Params.Mu(i-1))/2)^2;
                 end
@@ -100,7 +101,7 @@ classdef DMP_Base1 < handle
             %genPredTraj: generate predicted output states by query timing points(i.e. trajectory of y)
             %   inputs:
             
-            trajQuery  = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', []);
+            trajQuery  = obj.TrajectoryTemplate; %init using trajectory template structure
             %generate canonical states
             timeQuery = 0: obj.dt: endTime;
             trajQuery.s_traj = obj.genCanonStates(timeQuery); 
@@ -109,9 +110,10 @@ classdef DMP_Base1 < handle
             for k =1:obj.Force_Params.nbFuncs
                 Phi(k, :) = rbf_Basis(trajQuery.s_traj, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
             end
+            trajQuery.activations = Phi; %record activations
             Phi = Phi ./ sum(Phi,1) .* trajQuery.s_traj;
             %compute force terms
-            f_d = obj.Force_Params.weights * Phi;
+            trajQuery.f_traj = obj.Force_Params.weights * Phi;
             
             %Reproduction: Eular forward iteration
             N = size(timeQuery,2); %number of query points
@@ -128,7 +130,7 @@ classdef DMP_Base1 < handle
                     trajQuery.dy_traj(:, i) = trajQuery.dy_traj(:, i-1) +  trajQuery.ddy_traj(:, i-1) * obj.dt;
                 end
 
-                trajQuery.ddy_traj(:, i) = 1/obj.DMP_Params.tau^2 * (f_d(:, i) +  obj.DMP_Params.alpha_z * ...
+                trajQuery.ddy_traj(:, i) = 1/obj.DMP_Params.tau^2 * (trajQuery.f_traj(:, i) +  obj.DMP_Params.alpha_z * ...
                       (obj.DMP_Params.beta_z*(obj.DMP_Params.goal - trajQuery.y_traj(:, i)) - obj.DMP_Params.tau * trajQuery.dy_traj(:, i)));
             end
             
