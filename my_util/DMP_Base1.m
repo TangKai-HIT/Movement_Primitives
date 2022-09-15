@@ -5,22 +5,26 @@ classdef DMP_Base1 < handle
     
     properties
         DMP_Params=struct('goal', [], 'y_0', [], 'dy_0', [], 'alpha_z', 25, 'beta_z', 25/4, ...
-                                        'alpha_x', 25/3, 'tau', [], 'canonVarDim', 1, 'transVarDim', 1);
+                                        'alpha_x', 25/3, 'tau', [], 'canonVarDim', 1, 'transVarDim', []);
                                     
-        Force_Params=struct('nbFuncs', 5, 'weights', [], 'Mu', [], 'Sigma', []);
+        Force_Params=struct('nbFuncs', 5, 'weights', ones(1,5)*1/5, 'Mu', 0:1/4:1, 'Sigma', ones(1,5)*(1/8)^2);
         
         Trajectory;
         
         TrainData = {};
         
-        nbDemons; %number of demonstrations
-        dt;
+        nbDemons = 0; %number of demonstrations
+        dt =0.01;
     end
     
     properties (Access = private)
         TrainDataTemplate = struct('y_train', [], 'dy_train', [], 'ddy_train', [], 'nbData', []); %template of each demonstration data
         TrajectoryTemplate = struct('s_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', [], 'f_traj', [], 'activations', []); %template of query trajectory data
+        
+        lastDataId_rlwr = 0;  %last trained index of demonstration data using RLWR
         P_rlwr; %P matrix for recursive LWR
+        
+        lastDataId_rls = 0; %last trained index of demonstration data using RLS
         P_rls; %P matrix for recursive least square
     end
     
@@ -38,38 +42,75 @@ classdef DMP_Base1 < handle
                 obj.DMP_Params.tau = tau;
                 obj.DMP_Params.alpha_x = alpha_x;
 %                 obj.DMP_Params.canonVarDim = canonVarDim; %dimension of canonical variable x (or s)
-                obj.DMP_Params.transVarDim = size(trainPosData{1}, 1); %dimension of ouput variable y
-                
+
                 %%specify time increment
                 obj.dt = dt;
                 
                 if nargin>5 % if input training data
                     %%specify training data(in batch)
-                    obj.nbDemons = size(trainPosData,2);
-                    
-                    for i=1:obj.nbDemons
-                        obj.TrainData{i} = obj.TrainDataTemplate; %assign empty template
-                        %obj.TrainData{i}.y_train = spline(1:size(trainPosData{i},2), trainPosData{i}, linspace(1,size(trainPosData{i},2),nbSampData)); %Resampling
-                        obj.TrainData{i}.y_train = trainPosData{i};
-                        obj.TrainData{i}.nbData = size(trainPosData{i}, 2);
-                        if ~exist('trainVelData','var')
-                            obj.TrainData{i}.dy_train = gradient(trainPosData{i})/dt;
-                        else
-                            obj.TrainData{i}.dy_train = trainVelData{i};
-                        end
-                        if ~exist('trainAccelData','var')
-                            obj.TrainData{i}.ddy_train = gradient(obj.TrainData{i}.dy_train)/dt;
-                        else
-                            obj.TrainData{i}.ddy_train = trainAccelData{i};
-                        end
+                    if nargin>7 %input all parameters
+                    	obj.inputNewDemons(trainPosData, trainVelData, trainAccelData);
+                    elseif exist('trainVelData','var')
+                        obj.inputNewDemons(trainPosData, trainVelData);
+                    else
+                        obj.inputNewDemons(trainPosData);
                     end
-                    
-                    %set default goal & initial states
-                    obj.DMP_Params.goal = obj.TrainData{1}.y_train(:, end); %set default goal
-                    obj.DMP_Params.y_0 = obj.TrainData{1}.y_train(:, 1); %set default initial state
-                    obj.DMP_Params.dy_0 = obj.TrainData{1}.dy_train(:, 1); %set default initial state
                 end
                 
+            end
+        end
+        
+        %% inputNewDemons--------------------------------------------------------------------------
+        function inputNewDemons(obj, trainPosData, trainVelData, trainAccelData)
+            %inputNewDemons: input new demonstrations in batch
+            %   inputs:  trainPosData--batches of demonstrated position data(DXN) stored in cell array    
+            
+            if ~iscell(trainPosData) %if input single demonstration data in array
+                trainPosData = {trainPosData};
+            end
+            %update number of demonstrations
+            nbDemons_old = obj.nbDemons; %record last index of demonstration
+            obj.nbDemons = obj.nbDemons + size(trainPosData,2);
+
+            for i = nbDemons_old+1 : obj.nbDemons
+                obj.TrainData{i} = obj.TrainDataTemplate; %assign empty template
+                %obj.TrainData{i}.y_train = spline(1:size(trainPosData{i},2), trainPosData{i}, linspace(1,size(trainPosData{i},2),nbSampData)); %Resampling
+                obj.TrainData{i}.y_train = trainPosData{i};
+                obj.TrainData{i}.nbData = size(trainPosData{i}, 2);
+                
+                if ~exist('trainVelData','var')
+                    obj.TrainData{i}.dy_train = gradient(trainPosData{i})/obj.dt;
+                else
+                    if ~iscell(trainVelData) %if input single demonstration data in array
+                        trainVelData = {trainVelData};
+                    end
+                    obj.TrainData{i}.dy_train = trainVelData{i};
+                end
+                
+                if ~exist('trainAccelData','var')
+                    obj.TrainData{i}.ddy_train = gradient(obj.TrainData{i}.dy_train)/obj.dt;
+                else
+                    if ~iscell(trainAccelData) %if input single demonstration data in array
+                        trainAccelData = {trainAccelData};
+                    end
+                    obj.TrainData{i}.ddy_train = trainAccelData{i};
+                end
+                
+            end
+            
+            %dimension of ouput variable y
+            if isempty(obj.DMP_Params.transVarDim)
+                obj.DMP_Params.transVarDim = size(obj.TrainData{1}.y_train, 1); 
+            end
+            %set default goal & initial states
+            if isempty(obj.DMP_Params.goal)
+                obj.DMP_Params.goal = obj.TrainData{1}.y_train(:, end); %set default goal
+            end
+            if isempty(obj.DMP_Params.y_0)
+                obj.DMP_Params.y_0 = obj.TrainData{1}.y_train(:, 1); %set default initial state
+            end
+            if isempty(obj.DMP_Params.dy_0)
+                obj.DMP_Params.dy_0 = obj.TrainData{1}.dy_train(:, 1); %set default initial state
             end
         end
         
@@ -220,14 +261,56 @@ classdef DMP_Base1 < handle
         end
         
         %% RLS_Train------------------------------------------------------------------------------
-          function RLS_Train(obj)
+          function RLS_Train(obj, lambda)
             %LWR_batchTrain: train the DMP with recursive locally weighted
             %regression
+            if isempty(obj.P_rls)
+                obj.P_rls = eye(obj.Force_Params.nbFuncs); %init P matrix
+            end
             
+            if obj.lastDataId_rls == obj.nbDemons
+                disp('Please input new data!');
+            else
+                %%construct input data
+                Phi = [];
+                F_d = [];
+                for id = obj.lastDataId_rls+1 : obj.nbDemons
+                    %canonical states for current demonstration
+                    s = obj.genCanonStates([0 : obj.TrainData{id}.nbData-1]*obj.dt);
+                    %Input demonstrated data
+                    phi = zeros(obj.Force_Params.nbFuncs, obj.TrainData{id}.nbData);
+                    for k =1:obj.Force_Params.nbFuncs
+                        phi(k, :) = rbf_Basis(s, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
+                    end
+                    phi = phi ./ sum(phi,1) .* s;
+                    Phi = [Phi, phi];
+                    %Output force term data
+                    g = obj.TrainData{id}.y_train(:, end);
+                    f_d = obj.DMP_Params.tau^2 * obj.TrainData{id}.ddy_train - ...
+                        obj.DMP_Params.alpha_z*(obj.DMP_Params.beta_z*(g - obj.TrainData{id}.y_train) - obj.DMP_Params.tau*obj.TrainData{id}.dy_train);
+                    F_d = [F_d, f_d];
+                end
+                
+                %%recursively update the weights
+                w_old = obj.Force_Params.weights';
+                P_old = obj.P_rls;
+                for i = 1:size(F_d,2)
+                    phi = Phi(:, i);
+                    obj.P_rls = 1/lambda * (P_old - (P_old*(phi*phi')*P_old)/(lambda + phi' * P_old * phi));
+                    error = F_d(:, i)' - phi' * w_old;
+                    weights = w_old + error .* (obj.P_rls * phi);
+                    w_old = weights;
+                    P_old = obj.P_rls;
+                end
+                obj.Force_Params.weights = weights';
+                obj.lastDataId_rls = obj.nbDemons;
+                
+            end
+         
           end
-        
+          
           %% RLWR_Train---------------------------------------------------------------------------
-        function RLWR_Train(obj)
+        function RLWR_Train(obj, lambda)
         %LWR_batchTrain: train the DMP with recursive locally weighted
         %regression
 
