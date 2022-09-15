@@ -25,7 +25,8 @@ end
 DMP1 = DMP_Base1(alpha_z, beta_z, tau, alpha_x, dt, ...
                                             trainPosData1, trainVelData1, trainAccelData1);
 %init Basis functions and weights                                        
-DMP1.init_RBFBasis_timeBased(nbFuncs);                                       
+DMP1.init_RBFBasis_timeBased(nbFuncs); 
+% DMP1.init_RBFBasis_stateBased(nbFuncs); 
 %train DMP using  batch least square
 DMP1.LS_batchTrain();
 %% Generate predicted trajectories
@@ -34,7 +35,7 @@ endtime = 200*dt;
 
 %% Plot results
 %Init figures and plot parameters
-figure('PaperPosition',[0 0 16 4],'position',[10,10,1300,500],'color',[1 1 1]); 
+figure('PaperPosition',[0 0 16 4],'position',[10,10,1600,900],'color',[1 1 1]); 
 xx = round(linspace(1, 64, DMP1.Force_Params.nbFuncs)); %index to divide colormap
 clrmap = colormap('jet')*0.5;
 clrmap = min(clrmap(xx,:),.9);
@@ -50,8 +51,10 @@ axis equal; axis square;
 %Timeline plot of the force term
 axes('Position',[.25 .58 .7 .4]); hold on; 
 plot(timeSqe, predTraj.f_traj(1,:), '-','linewidth', 2, 'color', [.8 0 0]);
+plot(timeSqe, predTraj.f_traj(2,:), '-','linewidth', 2, 'color', [.5 0 0]);
 % axis([min(timeSqe) max(timeSqe) min(trajQuery.f_traj(1,:)) max(trajQuery.f_traj(1,:))]);
-ylabel('$F_1$','fontsize',16,'interpreter','latex');
+legend('$f_1(x)$','$f_2(x)$','fontsize',12,'interpreter','latex')
+ylabel('$Force$','fontsize',16,'interpreter','latex');
 xlabel('$t/s$','fontsize',16,'interpreter','latex');
 view(180,-90);
 
