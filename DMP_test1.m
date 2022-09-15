@@ -35,7 +35,7 @@ endtime = 200*dt;
 
 %% Plot results
 %Init figures and plot parameters
-figure('PaperPosition',[0 0 16 4],'position',[10,10,1600,900],'color',[1 1 1]); 
+figure('PaperPosition',[0 0 16 8],'position',[50,80,1600,900],'color',[1 1 1]); 
 xx = round(linspace(1, 64, DMP1.Force_Params.nbFuncs)); %index to divide colormap
 clrmap = colormap('jet')*0.5;
 clrmap = min(clrmap(xx,:),.9);
