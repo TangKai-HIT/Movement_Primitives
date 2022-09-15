@@ -25,9 +25,10 @@ classdef DMP_Base1 < handle
     end
     
     methods
+        %% DMP_Base1: Constructor-------------------------------------------------------------------
         function obj = DMP_Base1(alpha_z, beta_z, tau, alpha_x, dt, ...
                                             trainPosData, trainVelData, trainAccelData)
-            %DMP_Base1 Construct an instance of this class
+            %DMP_Base1: Construct an instance of this class
             %   inputs: trainPosData--cell array containing demonstrations
             %   position data Yi (Yi: d X N matrix)
             if nargin>0
@@ -72,13 +73,13 @@ classdef DMP_Base1 < handle
             end
         end
         
+        %% init_RBFBasis_timeBased ---------------------------------------------
         function init_RBFBasis_timeBased(obj, nbFuncs)
-            %init_RBFBasis_timeBased: init RBF basis functions to evenly distributed on time interval.
+            %init_RBFBasis_timeBased1: init RBF basis functions to evenly distributed on time interval.
             %   Inputs: nbFuncs--number of basis functions
             
-%             params_diagRegFact = 1E-4; %Optional regularization term to avoid numerical instability
-            obj.Force_Params.Mu = zeros(1,5);
-            obj.Force_Params.Sigma = zeros(1,5);
+            obj.Force_Params.Mu = zeros(1,nbFuncs);
+            obj.Force_Params.Sigma = zeros(1,nbFuncs);
             
             for i=1:nbFuncs
                 obj.Force_Params.Mu(i) = exp(-obj.DMP_Params.alpha_x / obj.DMP_Params.tau *(i-1)/(nbFuncs-1));
@@ -91,12 +92,32 @@ classdef DMP_Base1 < handle
             obj.Force_Params.weights = ones(obj.DMP_Params.transVarDim, nbFuncs) * (1/nbFuncs);
         end
         
+        %% init_RBFBasis_stateBased ---------------------------------------------
+        function init_RBFBasis_stateBased(obj, nbFuncs)
+            %init_RBFBasis_stateBased: init RBF basis functions to evenly distributed on canonical states interval (0~1).
+            %   Inputs: nbFuncs--number of basis functions
+            
+%             params_diagRegFact = 1E-4; %Optional regularization term to avoid numerical instability
+            obj.Force_Params.Mu = zeros(1,nbFuncs);
+            obj.Force_Params.Sigma = zeros(1,nbFuncs);
+            
+            interval = 1/(nbFuncs-1);
+            for i=1:nbFuncs
+                obj.Force_Params.Mu(i) = (i-1)*interval;
+                obj.Force_Params.Sigma(i) = (interval/2)^2;
+            end
+            
+            obj.Force_Params.weights = ones(obj.DMP_Params.transVarDim, nbFuncs) * (1/nbFuncs);
+        end
+        
+        %% genCanonStates----------------------------------------------------------------------
         function s_Query=genCanonStates(obj, timeQuery)
             %genCanonStates: generate canonical system states by query timing points(i.e. trajectory of x)
             %   inputs:
             s_Query = exp(-obj.DMP_Params.alpha_x/obj.DMP_Params.tau*timeQuery); 
         end
         
+        %% genPredTraj--------------------------------------------------------------------------
         function [trajQuery, timeQuery]=genPredTraj(obj, endTime)
             %genPredTraj: generate predicted output states by query timing points(i.e. trajectory of y)
             %   inputs:
@@ -137,6 +158,7 @@ classdef DMP_Base1 < handle
             obj.Trajectory = trajQuery;
         end
         
+        %% LS_batchTrain-----------------------------------------------------------------------------
         function LS_batchTrain(obj)
             %LS_batchTrain: train the DMP with batch least square 
             
@@ -160,25 +182,51 @@ classdef DMP_Base1 < handle
                 
                 Y_out = [Y_out, f_d];
             end
-            %take transpose the matrices to get standard design matrices
-            X_in = X_in';
-            Y_out = Y_out';
             %minimum norm solution of the normal equation
-            obj.Force_Params.weights = (pinv(X_in)*Y_out)';
+            obj.Force_Params.weights = Y_out*pinv(X_in);
         end
         
+        %% LWR_batchTrain-----------------------------------------------------------------------------------
         function LWR_batchTrain(obj)
             %LWR_batchTrain: train the DMP with batch locally weighted
-            %regression
+            %    regression,Local regression type: linear
+            
+            %%construct weight matrix Phi , input vector S and compute Force term
+            S=[];
+            Phi = [];
+            F_d = [];
+            for i=1:obj.nbDemons
+                %canonical states for current demonstration
+                s = obj.genCanonStates([0 : obj.TrainData{i}.nbData-1]*obj.dt);
+                S = [S, s];
+                %Input demonstrated data
+                phi = zeros(obj.Force_Params.nbFuncs, obj.TrainData{i}.nbData);
+                for k =1:obj.Force_Params.nbFuncs
+                    phi(k, :) = rbf_Basis(s, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
+                end
+                Phi = [Phi, phi];
+                %Output force term data
+                g = obj.TrainData{i}.y_train(:, end);
+                f_d = obj.DMP_Params.tau^2 * obj.TrainData{i}.ddy_train - ...
+                    obj.DMP_Params.alpha_z*(obj.DMP_Params.beta_z*(g - obj.TrainData{i}.y_train) - obj.DMP_Params.tau*obj.TrainData{i}.dy_train);
+                F_d = [F_d, f_d];
+            end
+            
+            %solution of weights
+            for i=1:obj.Force_Params.nbFuncs
+                obj.Force_Params.weights(:, i) = (F_d.*Phi(i, :)) * S' / (S.*Phi(i, :)*S');
+            end
             
         end
         
+        %% RLS_Train------------------------------------------------------------------------------
           function RLS_Train(obj)
             %LWR_batchTrain: train the DMP with recursive locally weighted
             %regression
             
           end
         
+          %% RLWR_Train---------------------------------------------------------------------------
         function RLWR_Train(obj)
         %LWR_batchTrain: train the DMP with recursive locally weighted
         %regression
