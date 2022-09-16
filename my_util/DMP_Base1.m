@@ -13,6 +13,8 @@ classdef DMP_Base1 < handle
         
         TrainData = {};
         
+        TrainMethod;
+        
         nbDemons = 0; %number of demonstrations
         dt =0.01;
     end
@@ -23,6 +25,7 @@ classdef DMP_Base1 < handle
         
         lastDataId_rlwr = 0;  %last trained index of demonstration data using RLWR
         P_rlwr; %P matrix for recursive LWR
+%         polyOrder;
         
         lastDataId_rls = 0; %last trained index of demonstration data using RLS
         P_rls; %P matrix for recursive least square
@@ -202,7 +205,7 @@ classdef DMP_Base1 < handle
         %% LS_batchTrain-----------------------------------------------------------------------------
         function LS_batchTrain(obj)
             %LS_batchTrain: train the DMP with batch least square 
-            
+            obj.TrainMethod = 'LS';
             %%construct input data & output data matrices for normal equation
             X_in=[];
             Y_out = [];
@@ -231,7 +234,7 @@ classdef DMP_Base1 < handle
         function LWR_batchTrain(obj)
             %LWR_batchTrain: train the DMP with batch locally weighted
             %    regression,Local regression type: linear
-            
+            obj.TrainMethod = 'LWR';
             %%construct weight matrix Phi , input vector S and compute Force term
             S=[];
             Phi = [];
@@ -245,6 +248,7 @@ classdef DMP_Base1 < handle
                 for k =1:obj.Force_Params.nbFuncs
                     phi(k, :) = rbf_Basis(s, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
                 end
+                phi = phi ./ sum(phi,1);
                 Phi = [Phi, phi];
                 %Output force term data
                 g = obj.TrainData{i}.y_train(:, end);
@@ -255,7 +259,7 @@ classdef DMP_Base1 < handle
             
             %solution of weights
             for i=1:obj.Force_Params.nbFuncs
-                obj.Force_Params.weights(:, i) = (F_d.*Phi(i, :)) * S' / (S.*Phi(i, :)*S');
+                obj.Force_Params.weights(:, i) = (F_d.*Phi(i, :)) * S' / ((S.*Phi(i, :))*S');
             end
             
         end
@@ -264,6 +268,8 @@ classdef DMP_Base1 < handle
           function RLS_Train(obj, lambda)
             %LWR_batchTrain: train the DMP with recursive locally weighted
             %regression
+            obj.TrainMethod = 'LS';
+            
             if isempty(obj.P_rls)
                 obj.P_rls = eye(obj.Force_Params.nbFuncs); %init P matrix
             end
@@ -297,8 +303,8 @@ classdef DMP_Base1 < handle
                 for i = 1:size(F_d,2)
                     phi = Phi(:, i);
                     obj.P_rls = 1/lambda * (P_old - (P_old*(phi*phi')*P_old)/(lambda + phi' * P_old * phi));
-                    error = F_d(:, i)' - phi' * w_old;
-                    weights = w_old + error .* (obj.P_rls * phi);
+                    error = F_d(:, i) - w_old' * phi;
+                    weights = w_old + (obj.P_rls * phi) * (error');
                     w_old = weights;
                     P_old = obj.P_rls;
                 end
@@ -311,9 +317,60 @@ classdef DMP_Base1 < handle
           
           %% RLWR_Train---------------------------------------------------------------------------
         function RLWR_Train(obj, lambda)
-        %LWR_batchTrain: train the DMP with recursive locally weighted
-        %regression
-
+            %LWR_batchTrain: train the DMP with recursive locally weighted
+            %regression
+            obj.TrainMethod = 'LWR';
+            
+            if isempty(obj.P_rlwr)
+                obj.P_rlwr = ones(1, obj.Force_Params.nbFuncs); %init P matrix
+            end
+            
+            if obj.lastDataId_rlwr == obj.nbDemons
+                disp('Please input new data!');
+            else
+                %%construct input data
+                Phi = [];
+                F_d = [];
+                S = [];
+                for id = obj.lastDataId_rlwr+1 : obj.nbDemons
+                    %canonical states for current demonstration
+                    s = obj.genCanonStates([0 : obj.TrainData{id}.nbData-1]*obj.dt);
+                    S = [S, s];
+                    %Input demonstrated data
+                    phi = zeros(obj.Force_Params.nbFuncs, obj.TrainData{id}.nbData);
+                    for k =1:obj.Force_Params.nbFuncs
+                        phi(k, :) = rbf_Basis(s, obj.Force_Params.Mu(k), obj.Force_Params.Sigma(k));
+                    end
+                    phi = phi ./ sum(phi,1);
+                    Phi = [Phi, phi];
+                    %Output force term data
+                    g = obj.TrainData{id}.y_train(:, end);
+                    f_d = obj.DMP_Params.tau^2 * obj.TrainData{id}.ddy_train - ...
+                        obj.DMP_Params.alpha_z*(obj.DMP_Params.beta_z*(g - obj.TrainData{id}.y_train) - obj.DMP_Params.tau*obj.TrainData{id}.dy_train);
+                    F_d = [F_d, f_d];
+                end
+                
+                %%recursively update the weights
+                w_old = obj.Force_Params.weights'; %K X D matrix
+                P_old = obj.P_rlwr;
+                error = zeros(obj.DMP_Params.transVarDim, obj.Force_Params.nbFuncs);
+                weights = zeros(obj.Force_Params.nbFuncs, obj.DMP_Params.transVarDim);
+                for i = 1:size(F_d,2)
+                    phi = Phi(:, i);
+                    xi = S(i);
+                    for k=1:obj.Force_Params.nbFuncs
+                        obj.P_rlwr(k) = 1/lambda * (P_old(k) - (P_old(k)*(xi*xi')*P_old(k))/(lambda / phi(k) + xi' * P_old(k) * xi));
+                        error(:, k) = F_d(:, i) - w_old(k, :)' * xi;
+                        weights(k, :) = w_old(k, :) + phi(k)*(obj.P_rlwr(k) * xi) * (error(:, k)');
+                    end
+                    w_old = weights;
+                    P_old = obj.P_rlwr;
+                end
+                obj.Force_Params.weights = weights';
+                obj.lastDataId_rlwr = obj.nbDemons;
+                
+            end
+            
         end
         
     end
