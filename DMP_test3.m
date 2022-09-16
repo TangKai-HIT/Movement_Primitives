@@ -11,7 +11,7 @@ alpha_x = 1;
 tau = 0.5;
 dt =0.01;
 nbFuncs = 5;
-%% Trained by least square (batch)
+%% Trained by recursive least square
 %construct training set
 trainPosData1=cell(1,size(loadDemonId,2));
 trainVelData1=cell(1,size(loadDemonId,2));

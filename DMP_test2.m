@@ -11,7 +11,7 @@ alpha_x = 1;
 tau = 0.5;
 dt =0.01;
 nbFuncs = 5;
-%% Trained by least square (batch)
+%% Trained by locally weighted regression (batch)
 %construct training set
 trainPosData1=cell(1,size(loadDemonId,2));
 trainVelData1=cell(1,size(loadDemonId,2));
@@ -27,7 +27,7 @@ DMP1 = DMP_Base1(alpha_z, beta_z, tau, alpha_x, dt, ...
 %init Basis functions and weights                                        
 DMP1.init_RBFBasis_timeBased(nbFuncs); 
 % DMP1.init_RBFBasis_stateBased(nbFuncs); 
-%train DMP using  batch least square
+%train DMP using  batch locally weighted regression
 DMP1.LWR_batchTrain();
 %% Generate predicted trajectories
 endtime = 200*dt;
