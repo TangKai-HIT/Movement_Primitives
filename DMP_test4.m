@@ -31,7 +31,8 @@ DMP1.init_RBFBasis_timeBased(nbFuncs);
 % DMP1.init_RBFBasis_stateBased(nbFuncs); 
 
 %train DMP using recursive locally weighted regression with forgetting factor
-DMP1.RLWR_Train(1);
+lambda = 1; %forgetting factor
+DMP1.RLWR_Train(lambda);
 
 %% Generate predicted trajectories
 endtime = 200*dt;
@@ -51,6 +52,7 @@ plot(DMP1.TrainData{i}.y_train(1,:), DMP1.TrainData{i}.y_train(2,:), '.', 'marke
 end
 plot(predTraj.y_traj(1,:), predTraj.y_traj(2,:), '-', 'linewidth', 3, 'color', [.8 0 0]);
 axis equal; axis square;  
+title(sprintf("Trained By RLWR ($\\lambda=%.2f)$", lambda), 'fontsize',16,'interpreter','latex');
 
 %Timeline plot of the force term
 axes('Position',[.25 .58 .7 .4]); hold on; 
@@ -77,3 +79,5 @@ view(180,-90);
 %Save figures
 saveas(gcf, 'results/test4/test4_RLWR_1.fig');
 saveas(gcf, 'results/test4/test4_RLWR_1.jpg');
+% saveas(gcf, 'results/test4/test4_RLWR_2.fig');
+% saveas(gcf, 'results/test4/test4_RLWR_2.jpg');
