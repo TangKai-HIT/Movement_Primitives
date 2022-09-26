@@ -124,6 +124,7 @@ classdef DMP_Base1 < handle
             
             obj.Force_Params.Mu = zeros(1,nbFuncs);
             obj.Force_Params.Sigma = zeros(1,nbFuncs);
+            obj.Force_Params.nbFuncs =nbFuncs;
             
             for i=1:nbFuncs
                 obj.Force_Params.Mu(i) = exp(-obj.DMP_Params.alpha_x / obj.DMP_Params.tau *(i-1)/(nbFuncs-1));
@@ -138,20 +139,41 @@ classdef DMP_Base1 < handle
         
         %% init_RBFBasis_stateBased ---------------------------------------------
         function init_RBFBasis_stateBased(obj, nbFuncs)
-            %init_RBFBasis_stateBased: init RBF basis functions to evenly distributed on canonical states interval (0~1).
+            %init_RBFBasis_stateBased: init RBF basis functions to clusters evenly distributed on canonical states interval (0~1).
             %   Inputs: nbFuncs--number of basis functions
             
-%             params_diagRegFact = 1E-4; %Optional regularization term to avoid numerical instability
+            params_diagRegFact = 1E-4; %Optional regularization term to avoid numerical instability
             obj.Force_Params.Mu = zeros(1,nbFuncs);
             obj.Force_Params.Sigma = zeros(1,nbFuncs);
+            obj.Force_Params.nbFuncs =nbFuncs;
             
-            interval = 1/(nbFuncs-1);
-            for i=1:nbFuncs
-                obj.Force_Params.Mu(i) = (i-1)*interval;
-                obj.Force_Params.Sigma(i) = (interval/2)^2;
+            if isempty(obj.TrainData)
+                disp("Please input training data first!");
+                return
+            else
+                maxNumData=zeros(1, size(obj.TrainData, 2));
+                for i=1:size(obj.TrainData, 2)
+                    maxNumData(i) = obj.TrainData{i}.nbData;
+                end
+                maxNumData = max(maxNumData);
             end
             
-            obj.Force_Params.weights = ones(obj.DMP_Params.transVarDim, nbFuncs) * (1/nbFuncs);
+            time = obj.dt * (0 : maxNumData);
+            S = obj.genCanonStates(time);
+            
+            TimingSep = linspace(min(S(1,:)), max(S(1,:)), nbFuncs+1);
+            
+            obj.Force_Params.weights = zeros(obj.DMP_Params.transVarDim, nbFuncs);
+            for i=1:nbFuncs
+                idtmp = find( S>=TimingSep(i) & S<TimingSep(i+1));
+                obj.Force_Params.weights(i) = length(idtmp);
+                obj.Force_Params.Mu(i) = mean(S(idtmp));
+                obj.Force_Params.Sigma(i) = cov(S(idtmp));
+                %Optional regularization term to avoid numerical instability
+                obj.Force_Params.Sigma(i) = obj.Force_Params.Sigma(i) + params_diagRegFact;
+            end
+            
+            obj.Force_Params.weights = obj.Force_Params.weights ./ sum(obj.Force_Params.weights, 2);
         end
         
         %% genCanonStates----------------------------------------------------------------------
