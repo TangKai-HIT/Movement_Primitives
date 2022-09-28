@@ -1,7 +1,7 @@
 classdef DMP_ver1 < handle
-    %DMP_ver1: Class of general(discrete + periodic) DMP trained by Recursive LWR  or GMR
+    %DMP_ver1: Class of discrete DMP trained by Recursive LWR  or GMR
     %   Describtion-------------------------------------
-    %   
+    %   : Updated from DMP_base1 with polynomial LWR and plot function
     
     properties
         DMP_Params=struct('goal', [], 'y_0', [], 'dy_0', [], 'alpha_z', 25, 'beta_z', 25/4, ...
@@ -283,7 +283,7 @@ classdef DMP_ver1 < handle
             view(180,-90);
 
             %Save figures
-            if exist('saveFig', 'var')
+            if exist('saveFigName', 'var')
                 for i = 1:size(saveFigName, 2)
                     saveas(gcf, saveFigName{i});
                 end
@@ -354,7 +354,7 @@ classdef DMP_ver1 < handle
             if isempty(obj.P_rlwr) %use RLWR for the first time
                 obj.Force_Params.weights = zeros(obj.DMP_Params.transVarDim, obj.LWR_polyOrder+1, obj.Force_Params.nbFuncs); %D X n X k 
                 P_dim = obj.LWR_polyOrder + 1;
-                obj.P_rlwr = 10*ones(P_dim, P_dim, obj.Force_Params.nbFuncs) .* eye(P_dim); %init P matrix
+                obj.P_rlwr = 1000*ones(P_dim, P_dim, obj.Force_Params.nbFuncs) .* eye(P_dim); %init P matrix
             end
             
             if obj.lastDataId_rlwr == obj.nbDemons
@@ -408,6 +408,13 @@ classdef DMP_ver1 < handle
             end
         end
         
+        %% RLWR_Reset----------------------------------------------------------------------------
+        function RLWR_Reset(obj)
+            %RLWR_Reset: reset training result of RLWR
+            obj.P_rlwr = [];
+            obj.Force_Params.weights = [];
+            obj.lastDataId_rlwr = 0;
+        end
     end
 end
 
