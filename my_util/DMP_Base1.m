@@ -1,5 +1,5 @@
 classdef DMP_Base1 < handle
-    %DMP_Base1: type 1 Base class of classic DMP
+    %DMP_Base1(Discarded!): type 1 Base class of classic DMP
     %   Describtion-------------------------------------
     %   
     
