@@ -33,8 +33,12 @@ DMP1.init_RBFBasis_timeBased(nbFuncs);
 %% Train & Predict using recursive-LWR
 %train DMP using recursive locally weighted regression with forgetting factor
 lambda = 1; %forgetting factor
-DMP1.LWR_polyOrder = 2; %set LWR polynomial order
-DMP1.RLWR_Train(lambda);
+polyOrder = 2; %set LWR polynomial order
+uncertainty = 1000; %uncertainty level of initial P_0 being identity matrix
+
+DMP1.RLWR_Reset(); %reset training results
+DMP1.init_LWR(polyOrder, lambda, uncertainty);
+DMP1.RLWR_Train();
 
 %%Generate predicted trajectories
 endtime = 200*dt;
@@ -43,11 +47,11 @@ DMP1.genPredTraj_LWR(endtime);
 %%Plot regression results 
 saveFigs = {'results/test5/test5_RLWR_poly2_1.fig', 'results/test5/test5_RLWR_poly2_1.jpg'};
 % saveFigs = {'results/test5/test5_RLWR_poly2_2.fig', 'results/test5/test5_RLWR_poly2_2.jpg'};
-DMP1.plot_Results(saveFigs);
+% DMP1.plotResults2D([1,2], saveFigs);
+DMP1.plotResults2D([1,2]);
 
 %% Train & Predict using batch-LWR
 %train DMP using recursive locally weighted regression with forgetting factor
-DMP1.LWR_polyOrder = 2; %set LWR polynomial order
 DMP1.LWR_batchTrain();
 
 %%Generate predicted trajectories
@@ -57,4 +61,5 @@ DMP1.genPredTraj_LWR(endtime);
 %%Plot regression results 
 saveFigs = {'results/test5/test5_BLWR_poly2_1.fig', 'results/test5/test5_BLWR_poly2_1.jpg'};
 % saveFigs = {'results/test5/test5_BLWR_poly2_1.fig', 'results/test5/test5_BLWR_poly2_1.jpg'};
-DMP1.plot_Results(saveFigs);
+% DMP1.plotResults2D([1,2], saveFigs);
+DMP1.plotResults2D([1,2]);

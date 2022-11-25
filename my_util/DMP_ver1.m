@@ -1,11 +1,12 @@
 classdef DMP_ver1 < handle
-    %DMP_ver1: Class of discrete DMP trained by Recursive LWR  or GMR
+    %DMP_ver1: Class of discrete DMP trained by Recursive LWR  or GMR, with
+    %shared 1-dimensional canonical system
     %   Describtion-------------------------------------
     %   : Updated from DMP_base1 with polynomial LWR and plot function
     
     properties
-        DMP_Params=struct('goal', [], 'y_0', [], 'dy_0', [], 'alpha_z', 25, 'beta_z', 25/4, ...
-                                        'alpha_x', 25/3, 'tau', [], 'canonVarDim', 1, 'transVarDim', []);
+        DMP_Params=struct('goal', [], 'y_0', [], 'dy_0', [], 'alpha_z', [], 'beta_z', [], ...
+                                        'alpha_x', [], 'tau', [], 'canonVarDim', 1, 'transVarDim', []);
                                     
         Force_Params=struct('nbFuncs', [], 'weights', [], 'Mu', [], 'Sigma', []);
         
@@ -13,20 +14,22 @@ classdef DMP_ver1 < handle
         
         TrainData = {};
         
-        TrainMethod;
-        LWR_polyOrder;
+        lambda; %forgetting factor
         
-        nbDemons = 0; %number of demonstrations
         dt =0.01;
     end
     
-    properties (Access = private)
+    properties (SetAccess = private)
         TrainDataTemplate = struct('y_train', [], 'dy_train', [], 'ddy_train', [], 'nbData', []); %template of each demonstration data
-        TrajectoryTemplate = struct('timeSq', [], 's_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', [], 'f_traj', [], 'activations', []); %template of query trajectory data
+        TrajectoryTemplate = struct('timeQuery', [], 's_traj', [], 'y_traj', [], 'dy_traj', [], 'ddy_traj', [], 'f_traj', [], 'activations', []); %template of query trajectory data
+        
+        nbDemons = 0; %number of demonstrations
+        
+        TrainMethod;
         
         lastDataId_rlwr = 0;  %last trained index of demonstration data using RLWR
         P_rlwr; %P matrix for recursive LWR
-        lambda=1; %forgetting factor
+        LWR_polyOrder;
     end
     
     methods
@@ -34,7 +37,7 @@ classdef DMP_ver1 < handle
         function obj = DMP_ver1(alpha_z, beta_z, tau, alpha_x, dt, ...
                                             trainPosData, trainVelData, trainAccelData)
             %DMP_ver1: Construct an instance of this class
-            %   inputs: trainPosData--cell array containing demonstrations
+            %   inputs: alpha_z--d X 1 array; trainPosData--cell array containing demonstrations
             %   position data Yi (Yi: d X N matrix)
             if nargin>0
                 %%specify parameters of canonical & transformation systems
@@ -117,7 +120,7 @@ classdef DMP_ver1 < handle
         
         %% init_RBFBasis_timeBased ---------------------------------------------
         function init_RBFBasis_timeBased(obj, nbFuncs)
-            %init_RBFBasis_timeBased1: init RBF basis functions to evenly distributed on time interval.
+            %init_RBFBasis_timeBased: init RBF basis functions to evenly distributed on time interval.
             %   Inputs: nbFuncs--number of basis functions
             
             obj.Force_Params.Mu = zeros(1,nbFuncs);
@@ -229,66 +232,12 @@ classdef DMP_ver1 < handle
                     trajQuery.dy_traj(:, i) = trajQuery.dy_traj(:, i-1) +  trajQuery.ddy_traj(:, i-1) * obj.dt;
                 end
 
-                trajQuery.ddy_traj(:, i) = 1/obj.DMP_Params.tau^2 * (trajQuery.f_traj(:, i) +  obj.DMP_Params.alpha_z * ...
-                      (obj.DMP_Params.beta_z*(obj.DMP_Params.goal - trajQuery.y_traj(:, i)) - obj.DMP_Params.tau * trajQuery.dy_traj(:, i)));
+                trajQuery.ddy_traj(:, i) = 1./obj.DMP_Params.tau.^2 .* (trajQuery.f_traj(:, i) +  obj.DMP_Params.alpha_z .* ...
+                      (obj.DMP_Params.beta_z .* (obj.DMP_Params.goal - trajQuery.y_traj(:, i)) - obj.DMP_Params.tau .* trajQuery.dy_traj(:, i)));
             end
             
             obj.Trajectory = trajQuery;
         end 
-        
-        %% plot_Results-------------------------------------------------------------------------------
-        function plot_Results(obj, saveFigName)
-            %plot_Results: plot all figures including demonstrations, predicted
-            %   trajectories, force term, activated basis functions
-            %Init figures and plot parameters
-            figure('PaperPosition',[0 0 16 8],'position',[50,80,1600,900],'color',[1 1 1]); 
-            xx = round(linspace(1, 64, obj.Force_Params.nbFuncs)); %index to divide colormap
-            clrmap = colormap('jet')*0.5;
-            clrmap = min(clrmap(xx,:),.9);
-
-            %Plot spatial demonstrations and predicted trajectory
-            axes('Position',[0 0 .2 1]); hold on; axis off;
-            for i=1:size(obj.TrainData, 2)
-            plot(obj.TrainData{i}.y_train(1,:), obj.TrainData{i}.y_train(2,:), '.', 'markersize', 8, 'color', [.7 .7 .7]);
-            end
-            plot(obj.Trajectory.y_traj(1,:), obj.Trajectory.y_traj(2,:), '-', 'linewidth', 3, 'color', [.8 0 0]);
-            axis equal; axis square; 
-            if obj.TrainMethod == 'RLWR'
-                title(sprintf("Trained By recursive-LWR\n$\\lambda=%.2f$\nPolynomial order: %d", obj.lambda, obj.LWR_polyOrder), ...
-                                'fontsize',16,'interpreter','latex');
-            elseif obj.TrainMethod == 'BLWR'
-                title(sprintf("Trained By batch-LWR\nPolynomial order: %d", obj.LWR_polyOrder), 'fontsize',16,'interpreter','latex');
-            end
-            
-            %Timeline plot of the force term
-            axes('Position',[.25 .58 .7 .4]); hold on; 
-            plot(obj.Trajectory.timeQuery, obj.Trajectory.f_traj(1,:), '-','linewidth', 2, 'color', [.8 0 0]);
-            plot(obj.Trajectory.timeQuery, obj.Trajectory.f_traj(2,:), '-','linewidth', 2, 'color', [.5 0 0]);
-            % axis([min(timeSqe) max(timeSqe) min(trajQuery.f_traj(1,:)) max(trajQuery.f_traj(1,:))]);
-            legend('$f_1(x)$','$f_2(x)$','fontsize',12,'interpreter','latex')
-            ylabel('$Force$','fontsize',16,'interpreter','latex');
-            xlabel('$t/s$','fontsize',16,'interpreter','latex');
-            view(180,-90);
-
-            %Plot of the basis functions activation w.r.t canonical state
-            axes('Position',[.25 .12 .7 .4]); hold on; 
-            for i=1:obj.Force_Params.nbFuncs
-                patch([obj.Trajectory.s_traj(1), obj.Trajectory.s_traj, obj.Trajectory.s_traj(end)], ...
-                            [0, obj.Trajectory.activations(i,:), 0], min(clrmap(i,:)+0.5,1), 'EdgeColor', 'none', 'facealpha', .4);
-                plot(obj.Trajectory.s_traj, obj.Trajectory.activations(i,:), 'linewidth', 2, 'color', min(clrmap(i,:)+0.2,1));
-            end
-            % axis([min(sIn) max(sIn) 0 1]);
-            xlabel('$x$','fontsize',16,'interpreter','latex'); 
-            ylabel('$\Psi$','fontsize',16,'interpreter','latex');
-            view(180,-90);
-
-            %Save figures
-            if exist('saveFigName', 'var')
-                for i = 1:size(saveFigName, 2)
-                    saveas(gcf, saveFigName{i});
-                end
-            end
-        end
         
         %% LWR_batchTrain-----------------------------------------------------------------------------------
         function LWR_batchTrain(obj)
@@ -318,8 +267,8 @@ classdef DMP_ver1 < handle
                 W = [W, w]; %compress diagonal weight matrix W to an array
                 %Output force term data
                 g = obj.TrainData{i}.y_train(:, end);
-                f_d = obj.DMP_Params.tau^2 * obj.TrainData{i}.ddy_train - ...
-                    obj.DMP_Params.alpha_z*(obj.DMP_Params.beta_z*(g - obj.TrainData{i}.y_train) - obj.DMP_Params.tau*obj.TrainData{i}.dy_train);
+                f_d = obj.DMP_Params.tau.^2 .* obj.TrainData{i}.ddy_train - ...
+                    obj.DMP_Params.alpha_z.*(obj.DMP_Params.beta_z.*(g - obj.TrainData{i}.y_train) - obj.DMP_Params.tau.*obj.TrainData{i}.dy_train);
                 F_d = [F_d, f_d];
             end
             
@@ -337,8 +286,27 @@ classdef DMP_ver1 < handle
             
         end
         
+         %% init_LWR---------------------------------------------------------------------------
+        function init_LWR(obj, rlwr_polyorder, lambda, uncertainty)
+            %init_LWR: init batch/recursive locally weighted regression options
+            % input: lambda--forgetting factor;  ;
+            % uncertainty--uncertainty level of initial P_0 being identity matrix
+            obj.LWR_polyOrder = rlwr_polyorder;
+            if nargin>1
+                obj.lambda = lambda;
+                P_dim = obj.LWR_polyOrder + 1;
+                
+                if ~exist('uncertainty','var')
+                    uncertainty = 1000;
+                end
+                
+                obj.P_rlwr = uncertainty * ones(P_dim, P_dim, obj.Force_Params.nbFuncs) .* eye(P_dim); %init P matrix
+                obj.Force_Params.weights = zeros(obj.DMP_Params.transVarDim, P_dim, obj.Force_Params.nbFuncs); %D X n X k 
+            end
+        end
+        
           %% RLWR_Train---------------------------------------------------------------------------
-        function RLWR_Train(obj, lambda)
+        function RLWR_Train(obj)
             %LWR_batchTrain: train the DMP with recursive locally weighted
             %regression
             obj.TrainMethod = 'RLWR';
@@ -347,8 +315,9 @@ classdef DMP_ver1 < handle
                 disp("LWR_polyOrder empty! Set LWR_polyOrder to default 1.")
             end
             
-            if exist('lambda', 'var')
-                obj.lambda = lambda;
+            if isempty(obj.lambda)
+                disp('please init RLWR options first!');
+                return
             end
             
             if isempty(obj.P_rlwr) %use RLWR for the first time
@@ -366,7 +335,7 @@ classdef DMP_ver1 < handle
                 S = [];
                 for id = obj.lastDataId_rlwr+1 : obj.nbDemons
                     %canonical states for current demonstration
-                    s = obj.genCanonStates([0 : obj.TrainData{id}.nbData-1]*obj.dt);
+                    s = obj.genCanonStates((0 : (obj.TrainData{id}.nbData-1))*obj.dt);
                     S = [S, s];
                     %Input demonstrated data
                     w = zeros(obj.Force_Params.nbFuncs, obj.TrainData{id}.nbData);
@@ -377,8 +346,8 @@ classdef DMP_ver1 < handle
                     W = [W, w];
                     %Output force term data
                     g = obj.TrainData{id}.y_train(:, end);
-                    f_d = obj.DMP_Params.tau^2 * obj.TrainData{id}.ddy_train - ...
-                        obj.DMP_Params.alpha_z*(obj.DMP_Params.beta_z*(g - obj.TrainData{id}.y_train) - obj.DMP_Params.tau*obj.TrainData{id}.dy_train);
+                    f_d = obj.DMP_Params.tau.^2 .* obj.TrainData{id}.ddy_train - ...
+                        obj.DMP_Params.alpha_z.*(obj.DMP_Params.beta_z.*(g - obj.TrainData{id}.y_train) - obj.DMP_Params.tau.*obj.TrainData{id}.dy_train);
                     F_d = [F_d, f_d];
                 end
                 
@@ -396,7 +365,7 @@ classdef DMP_ver1 < handle
                     xi = poly_S(:, i);
                     for k=1:obj.Force_Params.nbFuncs
                         w_k = w_old(:, :, k)';
-                        obj.P_rlwr(:, :, k) = 1/lambda * (P_old(:, :, k) - (P_old(:, :, k)*(xi * xi' )*P_old(:, :, k))/(lambda / w(k) + xi' * P_old(:, :, k) * xi));
+                        obj.P_rlwr(:, :, k) = 1/obj.lambda * (P_old(:, :, k) - (P_old(:, :, k)*(xi * xi' )*P_old(:, :, k))/(obj.lambda / w(k) + xi' * P_old(:, :, k) * xi));
                         error_k = F_d(:, i) - w_k' * xi;
                         obj.Force_Params.weights(:, :, k) = ( w_k + w(k) * (obj.P_rlwr(:, :, k) * xi) * (error_k') )';
                     end
@@ -415,6 +384,121 @@ classdef DMP_ver1 < handle
             obj.Force_Params.weights = [];
             obj.lastDataId_rlwr = 0;
         end
+        
+        %% plotResults1D-----------------------------------------------------------------------------
+        function plotResults1D(obj, dimId, saveFigName)
+            %plotResults1D:plot all results of 1D- DMP including demonstrations, predicted
+            %   trajectories, force term, activated basis functions ; Init figures and plot parameters
+            % Input: dimId--index of 1 dimension;  saveFigName--file name
+            
+            figure('position',[50,80,1600,900],'color',[1 1 1]);
+            
+            %y
+            subplot(4,1,1);
+            hold on; 
+            for i=1:size(obj.TrainData, 2)
+                t = (0 : obj.TrainData{i}.nbData-1)*obj.dt;
+                plot(t, obj.TrainData{i}.y_train(dimId(1),:), '.', 'markersize', 8, 'color', [.7 .7 .7]);
+            end
+            legend('Demonstrations');
+            plot(obj.Trajectory.timeQuery, obj.Trajectory.y_traj(dimId(1),:), '-', 'linewidth', 3, 'color', [.8 0 0], 'DisplayName', 'Prediction');
+            legend('FontSize', 12);
+            xlabel('t/s', 'FontSize', 16); 
+            ylabel(sprintf('$y_%d$', dimId(1)), 'Interpreter', 'latex', 'FontSize', 16);
+            
+            %dy
+            subplot(4,1,2);
+            hold on; 
+            for i=1:size(obj.TrainData, 2)
+                t = (0 : obj.TrainData{i}.nbData-1)*obj.dt;
+                plot(t, obj.TrainData{i}.dy_train(dimId(1),:), '.', 'markersize', 8, 'color', [.7 .7 .7]);
+            end
+            legend('Demonstrations');
+            plot(obj.Trajectory.timeQuery, obj.Trajectory.dy_traj(dimId(1),:), '-', 'linewidth', 3, 'color', [.8 0 0], 'DisplayName', 'Prediction');
+            legend('FontSize', 12);
+            xlabel('t/s', 'FontSize', 16); ylabel(sprintf('$\\dot{y}_%d$', dimId(1)), 'Interpreter', 'latex', 'FontSize', 16);
+            
+            %ddy
+            subplot(4,1,3);
+            hold on; 
+            for i=1:size(obj.TrainData, 2)
+                t = (0 : obj.TrainData{i}.nbData-1)*obj.dt;
+                plot(t, obj.TrainData{i}.ddy_train(dimId(1),:), '.', 'markersize', 8, 'color', [.7 .7 .7]);
+            end
+            legend('Demonstrations');
+            plot(obj.Trajectory.timeQuery, obj.Trajectory.ddy_traj(dimId(1),:), '-', 'linewidth', 3, 'color', [.8 0 0], 'DisplayName', 'Prediction');
+            legend('FontSize', 12);
+            xlabel('t/s', 'FontSize', 16); ylabel(sprintf('$\\ddot{y}_%d$', dimId(1)), 'Interpreter', 'latex', 'FontSize', 16);
+            
+            %force term
+            subplot(4,1,4);
+            hold on; 
+            plot(obj.Trajectory.timeQuery, obj.Trajectory.f_traj(dimId(1),:), '-', 'linewidth', 3, 'color', [.8 0 0], 'DisplayName', 'Force term');
+            legend('FontSize', 12);
+            xlabel('t/s', 'FontSize', 16); ylabel(sprintf('$f_%d$', dimId(1)), 'Interpreter', 'latex', 'FontSize', 16);
+            
+            %Save figures
+            if exist('saveFigName', 'var')
+                for i = 1:size(saveFigName, 2)
+                    saveas(gcf, saveFigName{i});
+                end
+            end
+        end
+        
+        %% plotResults2D---------------------------------------------------------------------------
+        function plotResults2D(obj, dimId, saveFigName)
+            %plotResults2D: plot all results of 2D-DMP including demonstrations, predicted
+            %   trajectories, force term, activated basis functions ;Init figures and plot parameters
+            % Input: dimId--index of 2 dimension;  saveFigName--file name
+            figure('PaperPosition',[0 0 16 8],'position',[50,80,1600,900],'color',[1 1 1]); 
+            xx = round(linspace(1, 64, obj.Force_Params.nbFuncs)); %index to divide colormap
+            clrmap = colormap('jet')*0.5;
+            clrmap = min(clrmap(xx,:),.9);
+
+            %Plot spatial demonstrations and predicted trajectory
+            axes('Position',[0 0 .2 1]); hold on; axis off;
+            for i=1:size(obj.TrainData, 2)
+            plot(obj.TrainData{i}.y_train(dimId(1),:), obj.TrainData{i}.y_train(dimId(2),:), '.', 'markersize', 8, 'color', [.7 .7 .7]);
+            end
+            plot(obj.Trajectory.y_traj(dimId(1),:), obj.Trajectory.y_traj(dimId(2),:), '-', 'linewidth', 3, 'color', [.8 0 0]);
+            axis equal; axis square; 
+            if obj.TrainMethod == 'RLWR'
+                title(sprintf("Trained By recursive-LWR\n$\\lambda=%.2f$\nPolynomial order: %d", obj.lambda, obj.LWR_polyOrder), ...
+                                'fontsize',16,'interpreter','latex');
+            elseif obj.TrainMethod == 'BLWR'
+                title(sprintf("Trained By batch-LWR\nPolynomial order: %d", obj.LWR_polyOrder), 'fontsize',16,'interpreter','latex');
+            end
+
+            %Timeline plot of the force term
+            axes('Position',[.25 .58 .7 .4]); hold on; 
+            plot(obj.Trajectory.timeQuery, obj.Trajectory.f_traj(dimId(1),:), '-','linewidth', 2, 'color', [.8 0 0]);
+            plot(obj.Trajectory.timeQuery, obj.Trajectory.f_traj(dimId(2),:), '-','linewidth', 2, 'color', [.5 0 0]);
+            % axis([min(timeSqe) max(timeSqe) min(trajQuery.f_traj(dimId(1),:)) max(trajQuery.f_traj(dimId(1),:))]);
+            legend('$f_1(x)$','$f_2(x)$','fontsize',12,'interpreter','latex')
+            ylabel('$Force$','fontsize',16,'interpreter','latex');
+            xlabel('$t/s$','fontsize',16,'interpreter','latex');
+            view(180,-90);
+
+            %Plot of the basis functions activation w.r.t canonical state
+            axes('Position',[.25 .12 .7 .4]); hold on; 
+            for i=1:obj.Force_Params.nbFuncs
+                patch([obj.Trajectory.s_traj(1), obj.Trajectory.s_traj, obj.Trajectory.s_traj(end)], ...
+                            [0, obj.Trajectory.activations(i,:), 0], min(clrmap(i,:)+0.5,1), 'EdgeColor', 'none', 'facealpha', .4);
+                plot(obj.Trajectory.s_traj, obj.Trajectory.activations(i,:), 'linewidth', 2, 'color', min(clrmap(i,:)+0.2,1));
+            end
+            % axis([min(sIn) max(sIn) 0 1]);
+            xlabel('$x$','fontsize',16,'interpreter','latex'); 
+            ylabel('$\Psi$','fontsize',16,'interpreter','latex');
+            view(180,-90);
+
+            %Save figures
+            if exist('saveFigName', 'var')
+                for i = 1:size(saveFigName, 2)
+                    saveas(gcf, saveFigName{i});
+                end
+            end
+        end
+        
     end
 end
 
