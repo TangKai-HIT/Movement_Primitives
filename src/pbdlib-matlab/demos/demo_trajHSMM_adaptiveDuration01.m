@@ -85,6 +85,7 @@ u = zeros(nbData,1); %No perturbation signal
 
 %% Load handwriting dataset
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+demos = [];
 load('data/2Dletters/S.mat');
 Data = [];
 for n=1:nbSamples

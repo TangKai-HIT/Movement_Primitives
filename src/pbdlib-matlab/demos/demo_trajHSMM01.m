@@ -50,6 +50,7 @@ minSigmaPd = 1E1; %Minimum variance of state duration (regularization term)
 
 %% Load handwriting movements
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+demos = [];
 load('data/2Dletters/S.mat');
 Data=[];
 for n=1:nbSamples
