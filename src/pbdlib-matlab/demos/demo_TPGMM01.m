@@ -162,10 +162,10 @@ end
 %Function to plot pegs
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 function h = plotPegs(p, colPegs, fa)
-	if ~exist('colPegs')
+	if ~exist('colPegs','var')
 		colPegs = [0.2863 0.0392 0.2392; 0.9137 0.4980 0.0078];
 	end
-	if ~exist('fa')
+	if ~exist('fa', 'var')
 		fa = .6;
 	end
 	pegMesh = [-4 -3.5; -4 10; -1.5 10; -1.5 -1; 1.5 -1; 1.5 10; 4 10; 4 -3.5; -4 -3.5]' *1E-1;
