@@ -119,5 +119,17 @@ classdef myGMM < handle
         function  h = plotGMM2D(obj, ax, color, valAlpha)
             h = plotGMM2D(ax, obj.Mu, obj.Sigma, color, valAlpha);
         end
+
+        function prob = evalPDF(obj, x)
+            %EVALPDF evaluate PDF at point x
+            %   x: dim X 1
+            %Compute gaussian PDF
+            gaussProb = zeros(obj.numGM, 1);
+            for k=1:obj.numGM
+                gaussProb(k) = gaussianPDF(x, obj.Mu(k, :)', obj.Sigma(:, :, k)); %k X 1
+            end
+            %Compute GMM PDF: 
+            prob = obj.MixCoeffs' * gaussProb;
+        end
     end
 end
